@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>PhoenixAIScan • Scan Before You Burn</title>
+
+  <!-- Google Font (Gen-Z clean) -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <!-- 🔥 Background glow layers (purely visual, animated later) -->
+  <div class="bg-glow bg-glow-red"></div>
+  <div class="bg-glow bg-glow-orange"></div>
+
+  <!-- 🧠 Main App Container -->
+  <main class="app">
+
+    <!-- 🔥 Header -->
+    <header class="header">
+      <h1 class="logo">
+        🔥 Phoenix<span>AI</span>Scan
+      </h1>
+      <p class="tagline">
+        Scan before you burn.
+      </p>
+    </header>
+
+    <!-- 🧪 Scanner Card -->
+    <section class="card scanner-card">
+
+      <!-- Language Select -->
+      <div class="field">
+        <label for="language">Language</label>
+        <select id="language">
+          <option value="python">Python</option>
+          <option value="bash">Bash / Shell</option>
+          <option value="sql">SQL</option>
+          <option value="javascript">JavaScript</option>
+        </select>
+      </div>
+
+      <!-- Code Input -->
+      <div class="field">
+        <label for="code">Paste AI-generated code</label>
+        <textarea
+          id="code"
+          placeholder="Paste your AI-generated code here…&#10;&#10;PhoenixAIScan will analyze risks before execution."
+        ></textarea>
+      </div>
+	  
+	  <div class="field">
+       <label>Or upload a file</label>
+       <input type="file" id="fileInput" accept=".py,.js,.sql,.sh">
+      </div>
+
+       <!-- 🔍 Code Preview (Highlighted after scan) -->
+       <section id="codePreviewSection" class="card hidden">
+        <h3 class="preview-title">⚠️ Code Risk Preview</h3>
+         <pre class="code-preview">
+          <code id="codePreview">
+          <!-- JS will inject highlighted code here -->
+       </code>
+      </pre>
+     </section>
+
+      <!-- Scan Button -->
+      <button id="scanBtn" onclick="scanCode()">
+        🔍 Scan Code
+      </button>
+
+    </section>
+
+<!-- 📊 Result Section -->
+<section id="result" class="result hidden">
+
+  <!-- Risk Score + Badge -->
+  <div class="risk-summary">
+    <div class="risk-score">
+      <span id="riskScore">0</span>
+      <small>/10</small>
+    </div>
+
+    <div id="riskBadge" class="risk-badge safe">
+      SAFE
+    </div>
+  </div>
+
+  <!-- 🧮 Risk Summary (Grouped) -->
+  <section id="riskSummary" class="card hidden">
+    <h3 class="preview-title">🧠 Risk Summary</h3>
+
+    <div id="riskSummaryContent">
+      <!-- JS will inject grouped risk summary here -->
+    </div>
+  </section>
+
+  <!-- ⚠️ Warnings List -->
+  <div class="warnings">
+    <!-- JS will inject warnings here -->
+  </div>
+
+</section>
+
+
+    <!-- ⚠️ Footer Note -->
+    <footer class="footer">
+      <p>
+        PhoenixAIScan never runs your code.
+        <span>It only warns you.</span>
+      </p>
+    </footer>
+
+  </main>
+
+  <!-- JS -->
+  <script src="script.js"></script>
+</body>
+</html>

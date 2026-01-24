@@ -1,0 +1,255 @@
+const API_SCAN_CODE = "http://127.0.0.1:8000/scan";
+const API_SCAN_FILE = "http://127.0.0.1:8000/scan-file";
+
+/* =========================
+   MAIN ENTRY
+========================= */
+
+async function scanCode() {
+  const codeEl = document.getElementById("code");
+  const fileInput = document.getElementById("fileInput");
+  const scanBtn = document.getElementById("scanBtn");
+
+  const hasCode = codeEl && codeEl.value.trim().length > 0;
+  const hasFile = fileInput && fileInput.files.length > 0;
+
+  if (!hasCode && !hasFile) {
+    shake(codeEl);
+    return;
+  }
+
+  scanBtn.disabled = true;
+  scanBtn.textContent = "⏳ Scanning…";
+
+  try {
+    let data;
+    if (hasFile) {
+      data = await scanUploadedFile(fileInput.files[0]);
+    } else {
+      data = await scanPastedCode(codeEl.value);
+    }
+
+    renderResult(data);
+
+  } catch (err) {
+    console.error(err);
+    showError("❌ Scan failed. Check backend or console.");
+  } finally {
+    scanBtn.disabled = false;
+    scanBtn.textContent = "🔍 Scan Code";
+  }
+}
+
+/* =========================
+   API CALLS
+========================= */
+
+async function scanPastedCode(code) {
+  const res = await fetch(API_SCAN_CODE, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, language: "auto" })
+  });
+
+  if (!res.ok) throw new Error("Scan API failed");
+  return res.json();
+}
+
+async function scanUploadedFile(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(API_SCAN_FILE, {
+    method: "POST",
+    body: formData
+  });
+
+  if (!res.ok) throw new Error("File scan API failed");
+  return res.json();
+}
+
+/* =========================
+   RENDER RESULT
+========================= */
+
+function renderResult(data) {
+  const resultEl = document.getElementById("result");
+  const riskScoreEl = document.getElementById("riskScore");
+  const riskBadgeEl = document.getElementById("riskBadge");
+  const warningsEl = document.querySelector(".warnings");
+
+  resultEl.classList.remove("hidden");
+  warningsEl.innerHTML = "";
+
+  animateNumber(riskScoreEl, data.risk_score);
+
+  const level = data.risk_level.toLowerCase();
+  riskBadgeEl.className = `risk-badge ${level}`;
+  riskBadgeEl.textContent = data.risk_level;
+
+  if (level === "high" || level === "critical") {
+    pulse(resultEl);
+  }
+
+  if (!data.warnings || data.warnings.length === 0) {
+    warningsEl.innerHTML = `
+      <p style="color:#22c55e; margin-top:12px;">
+        ✅ No dangerous operations detected.
+      </p>
+    `;
+  } else {
+    data.warnings.forEach((w, i) => {
+      const div = document.createElement("div");
+      div.className = "warning";
+      div.style.animationDelay = `${i * 0.04}s`;
+
+      div.innerHTML = `
+        <strong>Line ${w.line}</strong>: ${escapeHtml(w.code)}<br>
+        <em>${w.category}</em>
+        ⚠️ ${w.explanation}
+      `;
+      warningsEl.appendChild(div);
+    });
+  }
+
+  // 🔥 Code Preview
+  const codeEl = document.getElementById("code");
+  if (codeEl && codeEl.value.trim()) {
+    renderCodePreview(codeEl.value, data.warnings || []);
+  }
+
+  // 🧮 Risk Summary (STEP 2B)
+  renderRiskSummary(data.warnings || []);
+}
+
+/* =========================
+   CODE PREVIEW
+========================= */
+
+function renderCodePreview(code, warnings) {
+  const section = document.getElementById("codePreviewSection");
+  const preview = document.getElementById("codePreview");
+
+  if (!section || !preview) return;
+
+  section.classList.remove("hidden");
+  preview.innerHTML = "";
+
+  const lines = code.split("\n");
+  const riskMap = {};
+
+  warnings.forEach(w => {
+    const r = w.risk.toLowerCase();
+    if (!riskMap[w.line] || r === "critical") {
+      riskMap[w.line] = r;
+    }
+  });
+
+  lines.forEach((line, idx) => {
+    const span = document.createElement("span");
+    span.className = "code-line";
+    span.dataset.line = String(idx + 1).padStart(3, " ");
+
+    if (riskMap[idx + 1]) {
+      span.classList.add(riskMap[idx + 1]);
+    }
+
+    span.textContent = line || " ";
+    preview.appendChild(span);
+  });
+
+  const first = preview.querySelector(".critical, .high");
+  if (first) {
+    first.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+
+/* =========================
+   🧮 RISK SUMMARY (STEP 2B)
+========================= */
+
+function renderRiskSummary(warnings) {
+  const summarySection = document.getElementById("riskSummary");
+  const summaryContent = document.getElementById("riskSummaryContent");
+
+  if (!summarySection || !summaryContent) return;
+
+  if (!warnings || warnings.length === 0) {
+    summarySection.classList.add("hidden");
+    summaryContent.innerHTML = "";
+    return;
+  }
+
+  const grouped = {};
+
+  warnings.forEach(w => {
+    const risk = w.risk.toUpperCase();
+    const category = w.category;
+
+    if (!grouped[risk]) grouped[risk] = {};
+    if (!grouped[risk][category]) grouped[risk][category] = 0;
+    grouped[risk][category]++;
+  });
+
+  summaryContent.innerHTML = "";
+
+  Object.keys(grouped).forEach(riskLevel => {
+    const categories = grouped[riskLevel];
+    const total = Object.values(categories).reduce((a, b) => a + b, 0);
+
+    const block = document.createElement("div");
+    block.style.marginBottom = "14px";
+
+    block.innerHTML = `
+      <strong>${riskLevel} (${total})</strong>
+      <ul style="margin-top:6px; padding-left:18px;">
+        ${Object.keys(categories).map(c => `<li>${c}</li>`).join("")}
+      </ul>
+    `;
+
+    summaryContent.appendChild(block);
+  });
+
+  summarySection.classList.remove("hidden");
+}
+
+/* =========================
+   HELPERS
+========================= */
+
+function animateNumber(el, target) {
+  let n = 0;
+  const step = Math.max(1, Math.floor(target / 20));
+
+  const t = setInterval(() => {
+    n += step;
+    if (n >= target) {
+      n = target;
+      clearInterval(t);
+    }
+    el.textContent = n;
+  }, 20);
+}
+
+function shake(el) {
+  if (!el) return;
+  el.style.animation = "shake 0.4s";
+  setTimeout(() => (el.style.animation = ""), 400);
+}
+
+function pulse(el) {
+  el.style.animation = "pulse 0.6s ease-in-out 2";
+  setTimeout(() => (el.style.animation = ""), 1200);
+}
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function showError(msg) {
+  const warningsEl = document.querySelector(".warnings");
+  warningsEl.innerHTML = `<p style="color:#ef4444;">${msg}</p>`;
+}
