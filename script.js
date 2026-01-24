@@ -1,5 +1,5 @@
-const API_SCAN_CODE = "http://127.0.0.1:8000/scan";
-const API_SCAN_FILE = "http://127.0.0.1:8000/scan-file";
+const API_SCAN_CODE = "https://phoenixaiscan-backend.onrender.com/scan";
+const API_SCAN_FILE = "https://phoenixaiscan-backend.onrender.com/scan-file";
 
 /* =========================
    MAIN ENTRY
