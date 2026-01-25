@@ -1,3 +1,6 @@
+let scanInProgress = false;
+let currentScanId = 0;
+
 const API_SCAN_CODE = "https://phoenixaiscan-backend.onrender.com/scan";
 const API_SCAN_FILE = "https://phoenixaiscan-backend.onrender.com/scan-file";
 
@@ -10,13 +13,22 @@ async function scanCode() {
   const fileInput = document.getElementById("fileInput");
   const scanBtn = document.getElementById("scanBtn");
 
+  if (scanInProgress) return;
+  scanInProgress = true;
+
   const hasCode = codeEl && codeEl.value.trim().length > 0;
   const hasFile = fileInput && fileInput.files.length > 0;
 
   if (!hasCode && !hasFile) {
     shake(codeEl);
+    scanInProgress = false;
     return;
   }
+
+  const scanId = ++currentScanId;
+
+  resetResultUI();
+  showStatus("⏳ Waking up backend… first scan may take up to 60 seconds.");
 
   scanBtn.disabled = true;
   scanBtn.textContent = "⏳ Scanning…";
@@ -29,43 +41,76 @@ async function scanCode() {
       data = await scanPastedCode(codeEl.value);
     }
 
+    if (scanId !== currentScanId) return;
+
     renderResult(data);
 
   } catch (err) {
     console.error(err);
-    showError("❌ Scan failed. Check backend or console.");
+    showError(err.message || "❌ Scan failed. Please retry.");
   } finally {
+    scanInProgress = false;
     scanBtn.disabled = false;
     scanBtn.textContent = "🔍 Scan Code";
   }
 }
 
 /* =========================
-   API CALLS
+   API CALLS (WITH TIMEOUT)
 ========================= */
 
 async function scanPastedCode(code) {
-  const res = await fetch(API_SCAN_CODE, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code, language: "auto" })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
 
-  if (!res.ok) throw new Error("Scan API failed");
-  return res.json();
+  try {
+    const res = await fetch(API_SCAN_CODE, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, language: "auto" }),
+      signal: controller.signal
+    });
+
+    if (!res.ok) throw new Error("Scan API failed");
+    return res.json();
+
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error("Backend was sleeping. Please retry.");
+    }
+    throw err;
+
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function scanUploadedFile(file) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch(API_SCAN_FILE, {
-    method: "POST",
-    body: formData
-  });
+  try {
+    const res = await fetch(API_SCAN_FILE, {
+      method: "POST",
+      body: formData,
+      signal: controller.signal
+    });
 
-  if (!res.ok) throw new Error("File scan API failed");
-  return res.json();
+    if (!res.ok) throw new Error("File scan API failed");
+    return res.json();
+
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error("Backend was sleeping. Please retry.");
+    }
+    throw err;
+
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /* =========================
@@ -112,13 +157,11 @@ function renderResult(data) {
     });
   }
 
-  // 🔥 Code Preview
   const codeEl = document.getElementById("code");
   if (codeEl && codeEl.value.trim()) {
     renderCodePreview(codeEl.value, data.warnings || []);
   }
 
-  // 🧮 Risk Summary (STEP 2B)
   renderRiskSummary(data.warnings || []);
 }
 
@@ -165,7 +208,7 @@ function renderCodePreview(code, warnings) {
 }
 
 /* =========================
-   🧮 RISK SUMMARY (STEP 2B)
+   RISK SUMMARY
 ========================= */
 
 function renderRiskSummary(warnings) {
@@ -214,6 +257,37 @@ function renderRiskSummary(warnings) {
 }
 
 /* =========================
+   UI RESET + STATUS
+========================= */
+
+function resetResultUI() {
+  const resultEl = document.getElementById("result");
+  const warningsEl = document.querySelector(".warnings");
+  const previewSection = document.getElementById("codePreviewSection");
+  const previewEl = document.getElementById("codePreview");
+  const riskScoreEl = document.getElementById("riskScore");
+  const riskBadgeEl = document.getElementById("riskBadge");
+
+  if (resultEl) resultEl.classList.add("hidden");
+  if (warningsEl) warningsEl.innerHTML = "";
+  if (previewEl) previewEl.innerHTML = "";
+  if (previewSection) previewSection.classList.add("hidden");
+
+  if (riskScoreEl) riskScoreEl.textContent = "0";
+  if (riskBadgeEl) {
+    riskBadgeEl.textContent = "SAFE";
+    riskBadgeEl.className = "risk-badge safe";
+  }
+}
+
+function showStatus(msg) {
+  const warningsEl = document.querySelector(".warnings");
+  if (warningsEl) {
+    warningsEl.innerHTML = `<p style="color:#facc15;">${msg}</p>`;
+  }
+}
+
+/* =========================
    HELPERS
 ========================= */
 
@@ -251,5 +325,10 @@ function escapeHtml(text) {
 
 function showError(msg) {
   const warningsEl = document.querySelector(".warnings");
-  warningsEl.innerHTML = `<p style="color:#ef4444;">${msg}</p>`;
+  warningsEl.innerHTML = `
+    <p style="color:#ef4444;">
+      ${msg}<br>
+      <small>💡 Free backend may sleep after inactivity.</small>
+    </p>
+  `;
 }
