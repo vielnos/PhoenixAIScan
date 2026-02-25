@@ -56,6 +56,124 @@ async function scanCode() {
 }
 
 /* =========================
+   AUTO-DETECT LANGUAGE ON PASTE/TYPE
+   Updates the dropdown whenever the user pastes or stops typing
+========================= */
+
+function setupLanguageAutoDetect() {
+  const codeEl = document.getElementById("code");
+  if (!codeEl) return;
+
+  let debounceTimer;
+
+  codeEl.addEventListener("input", () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      const code = codeEl.value.trim();
+      if (code.length < 5) return;   // too short to detect reliably
+      previewDetectLanguage(code);
+    }, 500);   // wait 500ms after user stops typing
+  });
+
+  // also fire instantly on paste
+  codeEl.addEventListener("paste", () => {
+    setTimeout(() => {
+      const code = codeEl.value.trim();
+      if (code.length >= 5) previewDetectLanguage(code);
+    }, 100);   // tiny delay so paste content is available
+  });
+}
+
+async function previewDetectLanguage(code) {
+  try {
+    const res = await fetch(API_SCAN_CODE, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, language: "auto" })
+    });
+
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (data.language && data.language !== "unknown") {
+      updateLanguageDropdown(data.language, true);
+    }
+
+  } catch (e) {
+    // silent fail — this is just a preview, not the real scan
+  }
+}
+
+/* =========================
+   UPDATE LANGUAGE DROPDOWN
+========================= */
+
+function updateLanguageDropdown(language, showBadge = false) {
+  const dropdown = document.getElementById("language");
+  if (!dropdown) return;
+
+  // map backend language names to dropdown option values
+  const langMap = {
+    "python":     "python",
+    "javascript": "javascript",
+    "sql":        "sql",
+    "bash":       "bash",
+  };
+
+  const mapped = langMap[language.toLowerCase()];
+  if (!mapped) return;
+
+  // only update if the value actually changed
+  if (dropdown.value === mapped) return;
+
+  dropdown.value = mapped;
+
+  // flash the dropdown green to show it was auto-detected
+  dropdown.style.transition = "border-color 0.3s, box-shadow 0.3s";
+  dropdown.style.borderColor = "#22c55e";
+  dropdown.style.boxShadow = "0 0 8px #22c55e88";
+
+  setTimeout(() => {
+    dropdown.style.borderColor = "";
+    dropdown.style.boxShadow = "";
+  }, 2000);
+
+  // show a small badge below the dropdown if requested
+  if (showBadge) {
+    showDetectedBadge(language);
+  }
+}
+
+function showDetectedBadge(language) {
+  // remove any old badge first
+  const old = document.getElementById("detectedBadge");
+  if (old) old.remove();
+
+  const dropdown = document.getElementById("language");
+  if (!dropdown) return;
+
+  const badge = document.createElement("small");
+  badge.id = "detectedBadge";
+  badge.textContent = `✅ Auto-detected: ${language}`;
+  badge.style.cssText = `
+    display: block;
+    color: #22c55e;
+    font-size: 0.75rem;
+    margin-top: 4px;
+    opacity: 1;
+    transition: opacity 1s ease;
+  `;
+
+  dropdown.parentNode.insertBefore(badge, dropdown.nextSibling);
+
+  // fade out after 4 seconds
+  setTimeout(() => {
+    badge.style.opacity = "0";
+    setTimeout(() => badge.remove(), 1000);
+  }, 4000);
+}
+
+/* =========================
    API CALLS (WITH TIMEOUT)
 ========================= */
 
@@ -63,11 +181,15 @@ async function scanPastedCode(code) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000);
 
+  // read current dropdown value — use auto if not set
+  const dropdown = document.getElementById("language");
+  const language = dropdown ? dropdown.value || "auto" : "auto";
+
   try {
     const res = await fetch(API_SCAN_CODE, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, language: "auto" }),
+      body: JSON.stringify({ code, language }),
       signal: controller.signal
     });
 
@@ -131,6 +253,11 @@ function renderResult(data) {
   const level = data.risk_level.toLowerCase();
   riskBadgeEl.className = `risk-badge ${level}`;
   riskBadgeEl.textContent = data.risk_level;
+
+  // ── Update dropdown to match what backend actually scanned ──
+  if (data.language) {
+    updateLanguageDropdown(data.language, false);
+  }
 
   if (level === "high" || level === "critical") {
     pulse(resultEl);
@@ -332,3 +459,10 @@ function showError(msg) {
     </p>
   `;
 }
+
+/* =========================
+   INIT — runs on page load
+========================= */
+document.addEventListener("DOMContentLoaded", () => {
+  setupLanguageAutoDetect();
+});
