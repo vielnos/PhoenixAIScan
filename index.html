@@ -709,24 +709,10 @@
     }
 
     /* Scrollbar */
-    ::-webkit-scrollbar {
-      width: 8px;
-      height: 8px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: rgba(255, 255, 255, 0.02);
-      border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: rgba(255, 138, 61, 0.3);
-      border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 138, 61, 0.5);
-    }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 138, 61, 0.3); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 138, 61, 0.5); }
 
     /* Loading Spinner */
     .spinner {
@@ -739,6 +725,16 @@
     }
 
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Auto-detected badge ── */
+    #detectedBadge {
+      display: block;
+      color: var(--safe);
+      font-size: 0.75rem;
+      margin-top: 6px;
+      opacity: 1;
+      transition: opacity 1s ease;
+    }
   </style>
 </head>
 <body>
@@ -777,6 +773,7 @@
             </select>
             <i data-lucide="chevron-down" class="select-arrow" style="width: 16px; height: 16px;"></i>
           </div>
+          <!-- Auto-detected badge appears here dynamically -->
         </div>
 
         <!-- Security Level Meter -->
@@ -911,7 +908,6 @@ PhoenixAIScan will analyze risks before execution."></textarea>
     function createEmbers() {
       const container = document.getElementById('ember-container');
       const emberCount = 50;
-      
       for (let i = 0; i < emberCount; i++) {
         const ember = document.createElement('div');
         ember.className = 'ember';
@@ -960,11 +956,12 @@ PhoenixAIScan will analyze risks before execution."></textarea>
     function handleFile(file) {
       fileNameDisplay.textContent = file.name;
       fileNameDisplay.style.display = 'block';
-      
       const reader = new FileReader();
       reader.onload = (e) => {
         document.getElementById('code').value = e.target.result;
         updateMeter(30, 'FILE LOADED');
+        // auto-detect language from file content + filename
+        previewDetectLanguage(e.target.result, file.name);
       };
       reader.readAsText(file);
     }
@@ -974,6 +971,7 @@ PhoenixAIScan will analyze risks before execution."></textarea>
       document.getElementById('fileInput').value = '';
       fileNameDisplay.style.display = 'none';
       updateMeter(0, 'IDLE');
+      removeDetectedBadge();
     }
 
     async function pasteCode() {
@@ -981,6 +979,7 @@ PhoenixAIScan will analyze risks before execution."></textarea>
         const text = await navigator.clipboard.readText();
         document.getElementById('code').value = text;
         updateMeter(20, 'READY');
+        if (text.trim().length >= 5) previewDetectLanguage(text);
       } catch (err) {
         console.error('Failed to read clipboard');
       }
@@ -991,19 +990,107 @@ PhoenixAIScan will analyze risks before execution."></textarea>
       document.getElementById('meterValue').textContent = text;
     }
 
-    // Main Scan Function - FIXED VERSION
+    // ==============================================
+    // AUTO LANGUAGE DETECTION ON PASTE / TYPE
+    // ==============================================
+
+    function setupLanguageAutoDetect() {
+      const codeEl = document.getElementById("code");
+      if (!codeEl) return;
+
+      let debounceTimer;
+
+      // fires when user types
+      codeEl.addEventListener("input", () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          const code = codeEl.value.trim();
+          if (code.length >= 5) previewDetectLanguage(code);
+        }, 500);
+      });
+
+      // fires immediately after paste
+      codeEl.addEventListener("paste", () => {
+        clearTimeout(debounceTimer);
+        setTimeout(() => {
+          const code = codeEl.value.trim();
+          if (code.length >= 5) previewDetectLanguage(code);
+        }, 100);
+      });
+    }
+
+    async function previewDetectLanguage(code) {
+      try {
+        const res = await fetch(API_SCAN_CODE, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, language: "auto" })
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.language && data.language !== "unknown") {
+          updateLanguageDropdown(data.language);
+        }
+      } catch (e) {
+        // silent — this is a background preview call
+      }
+    }
+
+    function updateLanguageDropdown(language) {
+      const dropdown = document.getElementById("language");
+      if (!dropdown) return;
+
+      const valid = ["python", "javascript", "sql", "bash"];
+      const lang = language.toLowerCase();
+      if (!valid.includes(lang)) return;
+      if (dropdown.value === lang) return; // already correct, skip
+
+      dropdown.value = lang;
+
+      // flash green border on dropdown to show it changed
+      dropdown.style.transition = "border-color 0.3s, box-shadow 0.3s";
+      dropdown.style.borderColor = "#22c55e";
+      dropdown.style.boxShadow = "0 0 0 3px rgba(34,197,94,0.2)";
+      setTimeout(() => {
+        dropdown.style.borderColor = "";
+        dropdown.style.boxShadow = "";
+      }, 2000);
+
+      // show badge under dropdown
+      removeDetectedBadge();
+      const badge = document.createElement("small");
+      badge.id = "detectedBadge";
+      badge.textContent = "✅ Auto-detected: " + lang;
+      dropdown.parentNode.insertBefore(badge, dropdown.nextSibling);
+
+      // fade badge out after 4s
+      setTimeout(() => {
+        badge.style.opacity = "0";
+        setTimeout(() => badge.remove(), 1000);
+      }, 4000);
+    }
+
+    function removeDetectedBadge() {
+      const old = document.getElementById("detectedBadge");
+      if (old) old.remove();
+    }
+
+    // ==============================================
+    // MAIN SCAN
+    // ==============================================
+
     async function scanCode() {
       const codeEl = document.getElementById("code");
-      const fileInput = document.getElementById("fileInput");
+      const fileInputEl = document.getElementById("fileInput");
       const scanBtn = document.getElementById("scanBtn");
 
       if (scanInProgress) return;
       scanInProgress = true;
-      currentScanId++; // Increment scan ID
-      const thisScanId = currentScanId; // Store local copy
+      currentScanId++;
+      const thisScanId = currentScanId;
 
       const hasCode = codeEl.value.trim().length > 0;
-      const hasFile = fileInput.files.length > 0;
+      const hasFile = fileInputEl.files.length > 0;
 
       if (!hasCode && !hasFile) {
         shake(codeEl);
@@ -1011,7 +1098,6 @@ PhoenixAIScan will analyze risks before execution."></textarea>
         return;
       }
 
-      // UI Loading State
       scanBtn.classList.add('scanning');
       scanBtn.disabled = true;
       scanBtn.innerHTML = `<div class="spinner"></div><span>Analyzing...</span>`;
@@ -1023,12 +1109,11 @@ PhoenixAIScan will analyze risks before execution."></textarea>
       try {
         let data;
         if (hasFile) {
-          data = await scanUploadedFile(fileInput.files[0]);
+          data = await scanUploadedFile(fileInputEl.files[0]);
         } else {
           data = await scanPastedCode(codeEl.value);
         }
 
-        // Check if this is still the current scan (not interrupted by new scan)
         if (thisScanId === currentScanId) {
           renderResult(data);
         }
@@ -1053,20 +1138,18 @@ PhoenixAIScan will analyze risks before execution."></textarea>
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 60000);
 
+      // use current dropdown value — already updated by auto-detect
+      const language = document.getElementById('language').value || 'auto';
+
       try {
         const res = await fetch(API_SCAN_CODE, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            code, 
-            language: document.getElementById('language').value 
-          }),
+          body: JSON.stringify({ code, language }),
           signal: controller.signal
         });
-
         if (!res.ok) throw new Error("Scan API failed");
         return res.json();
-
       } catch (err) {
         if (err.name === "AbortError") throw new Error("Backend was sleeping. Please retry.");
         throw err;
@@ -1078,7 +1161,6 @@ PhoenixAIScan will analyze risks before execution."></textarea>
     async function scanUploadedFile(file) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 60000);
-
       const formData = new FormData();
       formData.append("file", file);
 
@@ -1088,10 +1170,8 @@ PhoenixAIScan will analyze risks before execution."></textarea>
           body: formData,
           signal: controller.signal
         });
-
         if (!res.ok) throw new Error("File scan API failed");
         return res.json();
-
       } catch (err) {
         if (err.name === "AbortError") throw new Error("Backend was sleeping. Please retry.");
         throw err;
@@ -1100,25 +1180,30 @@ PhoenixAIScan will analyze risks before execution."></textarea>
       }
     }
 
+    // ==============================================
+    // RENDER RESULT
+    // ==============================================
+
     function renderResult(data) {
       updateMeter(100, 'COMPLETE');
       
       const riskScoreEl = document.getElementById("riskScore");
       const riskBadgeEl = document.getElementById("riskBadge");
       
-      // Animate the score number
       animateNumber(riskScoreEl, data.risk_score || 0);
       
-      // Set badge with proper level from backend
       const level = (data.risk_level || 'safe').toLowerCase();
       riskBadgeEl.className = `risk-badge badge-${level}`;
       riskBadgeEl.textContent = data.risk_level || 'SAFE';
 
-      // Render warnings from backend
+      // update dropdown to confirmed language from backend
+      if (data.language && data.language !== "unknown") {
+        updateLanguageDropdown(data.language);
+      }
+
       renderWarnings(data.warnings || []);
       renderRiskSummary(data.warnings || []);
       
-      // Render code preview with highlights
       const codeEl = document.getElementById("code");
       if (codeEl.value.trim()) {
         renderCodePreview(codeEl.value, data.warnings || []);
@@ -1145,7 +1230,6 @@ PhoenixAIScan will analyze risks before execution."></textarea>
         const card = document.createElement("div");
         card.className = "warning-card";
         card.style.animationDelay = `${i * 0.1}s`;
-        
         card.innerHTML = `
           <div class="warning-line">
             Line ${w.line}: <span class="warning-code">${escapeHtml(w.code)}</span>
@@ -1170,7 +1254,6 @@ PhoenixAIScan will analyze risks before execution."></textarea>
         return;
       }
 
-      // Group by risk level
       const grouped = {};
       warnings.forEach(w => {
         const risk = (w.risk || 'MEDIUM').toUpperCase();
@@ -1187,16 +1270,13 @@ PhoenixAIScan will analyze risks before execution."></textarea>
         if (!grouped[level]) return;
         const cats = grouped[level];
         const total = Object.values(cats).reduce((a,b) => a+b, 0);
-        
         const group = document.createElement("div");
         group.className = `risk-group ${level.toLowerCase()}`;
         group.style.animationDelay = `${idx * 0.1}s`;
         group.innerHTML = `
           <div class="risk-group-title">${level} (${total})</div>
           <ul>
-            ${Object.entries(cats).map(([cat, count]) => 
-              `<li>${cat} (${count})</li>`
-            ).join("")}
+            ${Object.entries(cats).map(([cat, count]) => `<li>${cat} (${count})</li>`).join("")}
           </ul>
         `;
         content.appendChild(group);
@@ -1215,34 +1295,24 @@ PhoenixAIScan will analyze risks before execution."></textarea>
       const lines = code.split("\n");
       const riskMap = {};
       
-      // Map line numbers to risk levels
       warnings.forEach(w => {
         const lineNum = parseInt(w.line);
-        if (lineNum) {
-          riskMap[lineNum] = (w.risk || 'medium').toLowerCase();
-        }
+        if (lineNum) riskMap[lineNum] = (w.risk || 'medium').toLowerCase();
       });
 
       lines.forEach((line, idx) => {
         const lineNum = idx + 1;
         const div = document.createElement("div");
         div.className = "code-line";
-        
-        if (riskMap[lineNum]) {
-          div.classList.add(riskMap[lineNum]);
-        }
-        
+        if (riskMap[lineNum]) div.classList.add(riskMap[lineNum]);
         div.dataset.line = lineNum;
         div.textContent = line || " ";
         preview.appendChild(div);
       });
 
-      // Scroll to first risk
       setTimeout(() => {
         const firstRisk = preview.querySelector(".critical, .high");
-        if (firstRisk) {
-          firstRisk.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
+        if (firstRisk) firstRisk.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 100);
     }
 
@@ -1275,10 +1345,7 @@ PhoenixAIScan will analyze risks before execution."></textarea>
       const step = Math.max(1, Math.floor(target / 20));
       const timer = setInterval(() => {
         n += step;
-        if (n >= target) {
-          n = target;
-          clearInterval(timer);
-        }
+        if (n >= target) { n = target; clearInterval(timer); }
         el.textContent = n;
       }, 30);
     }
@@ -1290,10 +1357,7 @@ PhoenixAIScan will analyze risks before execution."></textarea>
       const int = setInterval(() => {
         el.style.transform = count % 2 === 0 ? "translateX(-8px)" : "translateX(8px)";
         count++;
-        if (count > 5) {
-          clearInterval(int);
-          el.style.transform = "";
-        }
+        if (count > 5) { clearInterval(int); el.style.transform = ""; }
       }, 50);
     }
 
@@ -1305,6 +1369,14 @@ PhoenixAIScan will analyze risks before execution."></textarea>
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
     }
+
+    // ==============================================
+    // INIT
+    // ==============================================
+    document.addEventListener("DOMContentLoaded", () => {
+      setupLanguageAutoDetect();
+    });
+
   </script>
 </body>
 </html>
